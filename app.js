@@ -843,7 +843,7 @@ function wireInk() {
   live.addEventListener("pointerdown", (e) => {
     if (e.button && e.button !== 0) return;
     e.preventDefault();
-    live.setPointerCapture(e.pointerId);
+    try { live.setPointerCapture(e.pointerId); } catch {}
     const stg = $("#stage");
     if (tool === "hand" || (e.pointerType === "touch" && settings.pencilOnly)) {
       drag = { type: "pan", id: e.pointerId, x: e.clientX, y: e.clientY, sl: stg.scrollLeft, st: stg.scrollTop };
