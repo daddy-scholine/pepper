@@ -3,7 +3,7 @@
   --bar:#2F3645; --teal:#0E6B75; --teal-dark:#0B5560; --teal-soft:#E1F1F2; --red:#D4261C; --sel:#2F6FDB;
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-html,body{margin:0;height:100%;overflow:hidden;background:var(--white);color:var(--ink);
+html,body{touch-action:manipulation;margin:0;height:100%;overflow:hidden;background:var(--white);color:var(--ink);
   font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,system-ui,sans-serif;font-size:16px;
   -webkit-user-select:none;user-select:none;overscroll-behavior:none}
 button{font:inherit;color:inherit;cursor:pointer}
@@ -73,8 +73,8 @@ svg{display:block}
 .pagewrap.ruled{background-image:repeating-linear-gradient(#fff 0,#fff 31px,#DCE6F2 31px,#DCE6F2 32px)}
 .pagewrap .selbox{position:absolute;border:2px dashed var(--sel);background:rgba(47,111,219,.06);pointer-events:none}
 .pagewrap .lassopath{position:absolute;left:0;top:0;pointer-events:none}
-#ink{touch-action:pan-x pan-y pinch-zoom}
-#ink.draw{touch-action:none}
+#live{touch-action:none;-webkit-touch-callout:none}
+.stage{overscroll-behavior:contain}
 .pager{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(20px + env(safe-area-inset-bottom));background:rgba(47,54,69,.94);color:#fff;border-radius:999px;display:flex;align-items:center;gap:2px;padding:2px 6px;z-index:5}
 .pager button{width:44px;height:44px;border:0;background:transparent;color:#fff;display:flex;align-items:center;justify-content:center}
 .pager input{width:46px;height:36px;border-radius:8px;border:0;text-align:center;font:inherit;font-weight:600;-webkit-user-select:text;user-select:text}

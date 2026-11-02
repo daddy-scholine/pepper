@@ -1,4 +1,4 @@
-const CACHE = "pepper-v1";
+const CACHE = "pepper-v2";
 const ASSETS = [
   "./", "index.html", "style.css", "app.js", "manifest.webmanifest",
   "vendor/pdf.min.mjs", "vendor/pdf.worker.min.mjs",

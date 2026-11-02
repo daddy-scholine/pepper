@@ -827,9 +827,9 @@ function updateInkMode() {
   const live = $("#live");
   if (!live) return;
   const draws = tool !== "hand";
-  live.classList.toggle("draw", draws && !settings.pencilOnly);
-  live.style.touchAction = draws && !settings.pencilOnly ? "none" : "pan-x pan-y pinch-zoom";
+  live.style.touchAction = "none"; // Pencil strokes are never taken over by scrolling; finger panning is done in code
   live.style.cursor = tool === "hand" ? "grab" : "crosshair";
+  live.style.webkitUserSelect = "none"; live.setAttribute("draggable", "false");
 }
 
 function pt(e) {
@@ -841,11 +841,14 @@ let drag = null;
 function wireInk() {
   const live = $("#live");
   live.addEventListener("pointerdown", (e) => {
-    if (tool === "hand") return;
-    if (e.pointerType === "touch" && settings.pencilOnly) return;
     if (e.button && e.button !== 0) return;
     e.preventDefault();
     live.setPointerCapture(e.pointerId);
+    const stg = $("#stage");
+    if (tool === "hand" || (e.pointerType === "touch" && settings.pencilOnly)) {
+      drag = { type: "pan", id: e.pointerId, x: e.clientX, y: e.clientY, sl: stg.scrollLeft, st: stg.scrollTop };
+      return;
+    }
     const p = pt(e);
     if (tool === "pen" || tool === "hl") {
       const sz = SIZES[tool][settings.size];
@@ -860,6 +863,7 @@ function wireInk() {
   live.addEventListener("pointermove", (e) => {
     if (!drag) return;
     e.preventDefault();
+    if (drag.type === "pan") { if (e.pointerId !== drag.id) return; const stg = $("#stage"); stg.scrollLeft = drag.sl - (e.clientX - drag.x); stg.scrollTop = drag.st - (e.clientY - drag.y); return; }
     const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
     for (const ev of evs.length ? evs : [e]) {
       const p = pt(ev);
@@ -874,6 +878,7 @@ function wireInk() {
     if (!drag) return;
     const d = drag; drag = null;
     const lc = $("#live"), lctx = lc.getContext("2d"); lctx.setTransform(1, 0, 0, 1, 0, 0); lctx.clearRect(0, 0, lc.width, lc.height);
+    if (d.type === "pan") return;
     if (d.type === "draw") {
       pushUndo(); R.strokes.push(d.s); redrawInk(); scheduleSave();
     } else if (d.type === "erase") { if (d.changed) { redrawInk(); scheduleSave(); } else R.undo.pop(); }
