@@ -660,6 +660,7 @@ function buildReaderShell() {
   </div>`;
   renderDots(); renderSizeDot(); renderPanel();
   wireInk();
+  wireGestures();
   $("#pgin").addEventListener("change", (e) => goPage(parseInt(e.target.value, 10) || R.page));
   $("#pgin").addEventListener("focus", (e) => e.target.select());
   const me = R;
@@ -694,8 +695,7 @@ $("#reader").addEventListener("click", async (e) => {
   else if (a === "size") { settings.size = (settings.size + 1) % 3; saveSettings(); renderSizeDot(); }
   else if (a === "prev") goPage(R.page - 1);
   else if (a === "next") goPage(R.page + 1);
-  else if (a === "zin") { R.zoom = clamp(R.zoom * 1.25, 0.6, 4); showPage(R.page, true); }
-  else if (a === "zout") { R.zoom = clamp(R.zoom / 1.25, 0.6, 4); showPage(R.page, true); }
+  else if (a === "zin" || a === "zout") { const sr = $("#stage").getBoundingClientRect(); zoomTo(R.zoom * (a === "zin" ? 1.25 : 0.8), sr.left + sr.width / 2, sr.top + sr.height / 2); }
   else if (a === "more") readerMenu();
 });
 
@@ -750,6 +750,11 @@ async function showPage(n, keepScroll) {
   const tok = ++R.tok;
   R.page = n;
   const stage = $("#stage"), pw = $("#pw");
+  let oldBmp = null;
+  if (keepScroll && R.pdf) {
+    const oc = $("#pdfc");
+    if (oc && oc.width) { oldBmp = document.createElement("canvas"); oldBmp.width = oc.width; oldBmp.height = oc.height; oldBmp.getContext("2d").drawImage(oc, 0, 0); }
+  }
   const cssW = Math.max(280, (stage.clientWidth - 36) * R.zoom);
   let ratio = 1.4142, page = null;
   if (R.pdf) {
@@ -768,10 +773,13 @@ async function showPage(n, keepScroll) {
     c.width = Math.round(cssW * dpr); c.height = Math.round(cssH * dpr);
     c.style.width = cssW + "px"; c.style.height = cssH + "px";
   }
+  if (oldBmp) { const pc0 = $("#pdfc"); pc0.getContext("2d").drawImage(oldBmp, 0, 0, pc0.width, pc0.height); }
   $("#pgin").value = n; $("#pgtot").textContent = "/ " + R.book.pages;
-  const rec = await dbGet("ink", R.book.id + ":" + n);
-  if (tok !== R.tok) return;
-  R.strokes = (rec && rec.strokes) || [];
+  if (!keepScroll) {
+    const rec = await dbGet("ink", R.book.id + ":" + n);
+    if (tok !== R.tok) return;
+    R.strokes = (rec && rec.strokes) || [];
+  }
   redrawInk();
   updateInkMode();
   renderSel();
@@ -835,6 +843,97 @@ function updateInkMode() {
 function pt(e) {
   const r = $("#live").getBoundingClientRect();
   return [(e.clientX - r.left) / R.k, (e.clientY - r.top) / R.k, e.pressure && e.pressure !== 0.5 ? e.pressure : e.pointerType === "pen" ? 0.5 : 0.55];
+}
+
+/* ---- palm rejection, pinch to zoom, double-tap ---- */
+const G = { pts: new Map(), ignored: new Set(), penDown: false, penT: 0, pinch: null, pan: null, lastTap: null };
+
+async function zoomTo(z, cx, cy) {
+  const pw = $("#pw"), st = $("#stage");
+  const r = pw.getBoundingClientRect();
+  const fx = (cx - r.left) / r.width, fy = (cy - r.top) / r.height;
+  pw.style.transform = ""; pw.style.transformOrigin = "";
+  R.zoom = clamp(z, 0.6, 4);
+  await showPage(R.page, true);
+  const r2 = $("#pw").getBoundingClientRect();
+  st.scrollLeft += r2.left + fx * r2.width - cx;
+  st.scrollTop += r2.top + fy * r2.height - cy;
+}
+
+function wireGestures() {
+  const st = $("#stage");
+  G.pts.clear(); G.ignored.clear(); G.pinch = null; G.pan = null; G.penDown = false;
+  const skip = (e) => e.target.closest && e.target.closest(".pager,.lassomenu");
+  const isPalm = (e) => G.penDown || performance.now() - G.penT < 450 || (e.width > 45 && e.height > 45);
+  const abortDraw = () => {
+    if (drag && drag.type !== "erase") { drag = null; const lc = $("#live"), lx = lc.getContext("2d"); lx.setTransform(1, 0, 0, 1, 0, 0); lx.clearRect(0, 0, lc.width, lc.height); }
+    else drag = null;
+  };
+  const mids = () => { const [a, b] = [...G.pts.values()]; return { d: Math.hypot(a.x - b.x, a.y - b.y), x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }; };
+
+  st.addEventListener("pointerdown", (e) => {
+    if (e.pointerType === "pen") {
+      G.penDown = true; G.penT = performance.now();
+      if (drag && drag.type === "pan") drag = null;   // a palm or finger got there first
+      G.pan = null; G.pts.clear(); G.pinch = null;
+      return;
+    }
+    if (e.pointerType !== "touch" || skip(e)) return;
+    if (isPalm(e)) { G.ignored.add(e.pointerId); e.stopPropagation(); e.preventDefault(); return; }
+    G.pts.set(e.pointerId, { x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, t: performance.now() });
+    if (G.pts.size === 2) {
+      abortDraw(); G.pan = null;
+      const m = mids(), pw = $("#pw"), r = pw.getBoundingClientRect();
+      pw.style.transformOrigin = `${m.x - r.left}px ${m.y - r.top}px`;
+      G.pinch = { d0: m.d || 1, z0: R.zoom, s: 1, cx: m.x, cy: m.y };
+      e.stopPropagation(); e.preventDefault();
+    } else if (e.target !== $("#live")) {
+      G.pan = { id: e.pointerId, x: e.clientX, y: e.clientY, sl: st.scrollLeft, st: st.scrollTop };
+    }
+  }, true);
+
+  st.addEventListener("pointermove", (e) => {
+    if (e.pointerType === "pen") { G.penT = performance.now(); return; }
+    if (e.pointerType !== "touch") return;
+    if (G.ignored.has(e.pointerId)) { e.stopPropagation(); e.preventDefault(); return; }
+    const p = G.pts.get(e.pointerId);
+    if (!p) return;
+    p.x = e.clientX; p.y = e.clientY;
+    if (G.pinch) {
+      e.stopPropagation(); e.preventDefault();
+      if (G.pts.size >= 2) {
+        const m = mids(), g = G.pinch;
+        g.s = clamp(m.d / g.d0, 0.6 / g.z0, 4 / g.z0); g.cx = m.x; g.cy = m.y;
+        $("#pw").style.transform = `scale(${g.s})`;
+      }
+      return;
+    }
+    if (G.pan && G.pan.id === e.pointerId) { st.scrollLeft = G.pan.sl - (e.clientX - G.pan.x); st.scrollTop = G.pan.st - (e.clientY - G.pan.y); e.preventDefault(); }
+  }, true);
+
+  const up = (e) => {
+    if (e.pointerType === "pen") { G.penDown = false; G.penT = performance.now(); return; }
+    if (e.pointerType !== "touch") return;
+    if (G.ignored.delete(e.pointerId)) { e.stopPropagation(); return; }
+    const p = G.pts.get(e.pointerId);
+    G.pts.delete(e.pointerId);
+    if (G.pinch) {
+      e.stopPropagation();
+      if (G.pts.size < 2) { const g = G.pinch; G.pinch = null; zoomTo(g.z0 * g.s, g.cx, g.cy); }
+      return;
+    }
+    if (G.pan && G.pan.id === e.pointerId) G.pan = null;
+    // double tap with a finger: zoom in, or back to fit width
+    if (p && e.type === "pointerup" && Math.hypot(p.x - p.x0, p.y - p.y0) < 10 && performance.now() - p.t < 300 && (settings.pencilOnly || tool === "hand") && !skip(e)) {
+      const now = performance.now();
+      if (G.lastTap && now - G.lastTap.t < 350 && Math.hypot(G.lastTap.x - p.x, G.lastTap.y - p.y) < 40) {
+        G.lastTap = null;
+        zoomTo(R.zoom > 1.05 ? 1 : 2, p.x, p.y);
+      } else G.lastTap = { t: now, x: p.x, y: p.y };
+    }
+  };
+  st.addEventListener("pointerup", up, true);
+  st.addEventListener("pointercancel", up, true);
 }
 
 let drag = null;
